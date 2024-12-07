@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Configuration de la page
 st.set_page_config(
@@ -69,24 +69,21 @@ if df is not None:
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        # Sélection de la période
+        # Préparation des données pour le graphique
         df = df.sort_values('date')
-        latest_date = df['date'].max()
-        earliest_date = df['date'].min()
+        df_pivot = df.pivot(index='date', columns='pays', values='inflation')
         
-        periode = st.slider(
-            "Sélectionnez la période",
-            min_value=earliest_date,
-            max_value=latest_date,
-            value=(latest_date - pd.DateOffset(months=12), latest_date)
+        # Sélection de la période (derniers mois)
+        nombre_mois = st.slider(
+            "Nombre de mois à afficher",
+            min_value=6,
+            max_value=36,
+            value=12,
+            step=3
         )
         
-        # Filtrer les données selon la période
-        mask = (df['date'] >= periode[0]) & (df['date'] <= periode[1])
-        df_filtered = df[mask]
-        
-        # Pivoter pour avoir les pays en colonnes
-        df_pivot = df_filtered.pivot(index='date', columns='pays', values='inflation')
+        # Filtrer les données pour la période sélectionnée
+        df_pivot = df_pivot.last(f"{nombre_mois}M")
         
         # Créer le graphique
         fig = px.line(
