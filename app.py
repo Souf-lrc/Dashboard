@@ -1,56 +1,61 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from datetime import datetime, timedelta
 import requests
+from datetime import datetime, timedelta
 
 # Configuration de la page
 st.set_page_config(page_title="Inflation en Europe", layout="wide")
 st.title("Dashboard Inflation en Europe")
 
-# Fonction pour récupérer les données d'Eurostat via leur API REST
-@st.cache_data
+# Fonction pour récupérer les données d'Eurostat
+@st.cache_data(ttl=3600)  # Cache pour 1 heure
 def get_inflation_data():
-    # URL de l'API Eurostat pour HICP
-    url = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/prc_hicp_manr"
-    
-    # Paramètres de la requête
-    params = {
-        'format': 'JSON',
-        'lang': 'en',
-        'freq': 'M',  # Mensuel
-        'unit': 'RCH_A',  # Taux annuel de changement
-        'coicop': 'CP00'  # Tous items
-    }
-    
     try:
-        response = requests.get(url, params=params)
-        response.raise_for_status()  # Vérifie si la requête a réussi
+        # URL de l'API Eurostat pour l'inflation HICP mensuelle
+        url = "https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/data/PRC_HICP_MANR"
+        
+        headers = {
+            'Accept': 'application/json'
+        }
+        
+        params = {
+            'startPeriod': '2020',  # Données depuis 2020
+            'format': 'JSON'
+        }
+        
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        
         data = response.json()
         
-        # Transformation en DataFrame
-        values = data['value']
-        dimensions = data['dimension']
+        # Extraire les données du JSON
+        observations = data['dataSets'][0]['series']
         
-        # Création d'une liste de données
+        # Créer une liste pour stocker les données
         records = []
-        for time_key in dimensions['time']['category']['index'].keys():
-            for geo_key in dimensions['geo']['category']['index'].keys():
-                value_key = f"{time_key},{geo_key}"
-                if value_key in values:
+        
+        # Parcourir les observations
+        for series_key, series_data in observations.items():
+            # Décomposer la clé pour obtenir le pays
+            keys = series_key.split(':')
+            if len(keys) >= 5:  # Vérifier que nous avons assez d'éléments
+                country = keys[4]
+                
+                # Parcourir les valeurs temporelles
+                for time_idx, value in series_data['observations'].items():
+                    time_period = data['structure']['dimensions']['observation'][0]['values'][int(time_idx)]['id']
                     records.append({
-                        'time': time_key,
-                        'geo': geo_key,
-                        'value': values[value_key]
+                        'date': pd.to_datetime(time_period),
+                        'country': country,
+                        'value': value[0]
                     })
         
+        # Créer un DataFrame
         df = pd.DataFrame(records)
         
-        # Conversion de la colonne time en datetime
-        df['time'] = pd.to_datetime(df['time'], format='%Y-%m')
-        
-        # Pivot de la table
-        df_pivot = df.pivot(index='time', columns='geo', values='value')
+        # Pivoter le DataFrame
+        df_pivot = df.pivot(index='date', columns='country', values='value')
         
         return df_pivot
         
@@ -97,7 +102,7 @@ if df is not None:
             fig = px.line(
                 df_filtered,
                 title="Évolution de l'inflation",
-                labels={"value": "Inflation (%)", "time": "Date"},
+                labels={"value": "Inflation (%)", "date": "Date"},
                 height=500
             )
             st.plotly_chart(fig, use_container_width=True)
@@ -109,7 +114,7 @@ if df is not None:
             st.dataframe(
                 latest_data.reset_index().rename(
                     columns={'index': 'Pays', latest_data.name: 'Inflation (%)'}
-                )
+                ).round(1)
             )
 
             # Statistiques
